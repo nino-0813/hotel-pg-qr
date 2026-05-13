@@ -7,6 +7,7 @@ type Facing = "user" | "environment";
 
 const HOTEL_NAME = "HOTEL PG";
 const CAPTION = "記念撮影";
+const INTRO_MS = 1800;
 
 export default function PhotoBooth() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -21,6 +22,8 @@ export default function PhotoBooth() {
   );
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
+  const [showA2HSBanner, setShowA2HSBanner] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -35,6 +38,40 @@ export default function PhotoBooth() {
       characterRef.current = img;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const alreadySeen = sessionStorage.getItem("introShown");
+    if (alreadySeen) {
+      setShowIntro(false);
+      return;
+    }
+    sessionStorage.setItem("introShown", "1");
+    const t = window.setTimeout(() => setShowIntro(false), INTRO_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const nav = window.navigator as Navigator & { standalone?: boolean };
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      nav.standalone === true;
+    const isIOS = /iphone|ipad|ipod/i.test(nav.userAgent);
+    const dismissed = localStorage.getItem("a2hs-dismissed");
+    if (isIOS && !isStandalone && !dismissed) {
+      const t = window.setTimeout(
+        () => setShowA2HSBanner(true),
+        INTRO_MS + 400,
+      );
+      return () => window.clearTimeout(t);
+    }
+  }, []);
+
+  const dismissA2HS = () => {
+    localStorage.setItem("a2hs-dismissed", "1");
+    setShowA2HSBanner(false);
+  };
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -174,7 +211,25 @@ export default function PhotoBooth() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full min-h-dvh bg-black text-white px-4 py-6">
+    <div className="flex flex-col items-center justify-center w-full min-h-dvh bg-black text-white px-4 py-6 safe-area">
+      {showIntro && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-red-600 animate-splash-out pointer-events-none">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/character.png"
+            alt=""
+            aria-hidden
+            className="w-1/2 max-w-[280px] drop-shadow-2xl animate-mascot-pop"
+          />
+          <h1 className="mt-6 text-4xl font-extrabold tracking-[0.3em] text-white animate-title-rise">
+            {HOTEL_NAME}
+          </h1>
+          <p className="mt-3 text-sm text-white/85 tracking-[0.5em] animate-subtitle-rise">
+            {CAPTION}
+          </p>
+        </div>
+      )}
+
       <div className="w-full max-w-md flex flex-col items-center gap-4">
         <header className="text-center">
           <h1 className="text-2xl font-extrabold tracking-[0.2em]">
@@ -194,7 +249,7 @@ export default function PhotoBooth() {
               <button
                 onClick={() => startCamera(facing)}
                 disabled={starting}
-                className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 disabled:bg-zinc-700 transition-colors font-bold"
+                className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 disabled:bg-zinc-700 transition-all font-bold"
               >
                 {starting ? "起動中…" : "カメラを起動"}
               </button>
@@ -247,14 +302,14 @@ export default function PhotoBooth() {
               onClick={flip}
               disabled={starting}
               aria-label="カメラ切り替え"
-              className="w-12 h-12 rounded-full bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-xl"
+              className="w-12 h-12 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-90 transition-transform flex items-center justify-center text-xl"
             >
               🔄
             </button>
             <button
               onClick={capture}
               aria-label="撮影"
-              className="w-20 h-20 rounded-full bg-white border-4 border-zinc-300 active:scale-95 transition-transform shadow-xl"
+              className="w-20 h-20 rounded-full bg-white border-4 border-zinc-300 active:scale-90 transition-transform shadow-xl"
             />
             <div className="w-12 h-12" aria-hidden />
           </div>
@@ -264,13 +319,13 @@ export default function PhotoBooth() {
           <div className="flex items-center justify-center gap-3 w-full mt-2">
             <button
               onClick={reset}
-              className="px-5 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 font-medium"
+              className="px-5 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 transition-all font-medium"
             >
               やり直し
             </button>
             <button
               onClick={save}
-              className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 font-bold"
+              className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 transition-all font-bold"
             >
               写真を保存
             </button>
@@ -287,6 +342,40 @@ export default function PhotoBooth() {
 
         <canvas ref={canvasRef} className="hidden" />
       </div>
+
+      {showA2HSBanner && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-40 px-3 pb-3"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
+        >
+          <div className="mx-auto max-w-md rounded-2xl bg-zinc-900/95 backdrop-blur-md border border-white/10 px-4 py-3 flex items-center gap-3 shadow-2xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/apple-touch-icon.png"
+              alt=""
+              aria-hidden
+              className="w-11 h-11 rounded-xl flex-shrink-0"
+            />
+            <div className="flex-1 text-xs leading-tight">
+              <p className="font-bold text-sm mb-0.5">ホーム画面に追加</p>
+              <p className="text-zinc-400">
+                共有
+                <span className="inline-block mx-1 px-1 rounded bg-zinc-700 text-[10px]">
+                  ⬆︎
+                </span>
+                →「ホーム画面に追加」でアプリ化
+              </p>
+            </div>
+            <button
+              onClick={dismissA2HS}
+              aria-label="閉じる"
+              className="text-zinc-400 hover:text-white text-2xl leading-none w-8 h-8 flex items-center justify-center flex-shrink-0"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
