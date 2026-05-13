@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Frame } from "./frames";
-import { drawFrameOverlay } from "./drawFrame";
+import { drawFrameOverlay, type ImageMap } from "./drawFrame";
 
 type Mode = "idle" | "live" | "captured";
 type Facing = "user" | "environment";
@@ -18,13 +18,33 @@ const filterCss: Record<NonNullable<Frame["filter"]> | "none", string> = {
   cool: "saturate(0.9) hue-rotate(-10deg)",
 };
 
+function loadImage(
+  src: string,
+  fallback?: string | "skip",
+): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      if (!fallback || fallback === "skip") {
+        resolve(null);
+        return;
+      }
+      const fb = new window.Image();
+      fb.onload = () => resolve(fb);
+      fb.onerror = () => resolve(null);
+      fb.src = fallback;
+    };
+    img.src = src;
+  });
+}
+
 export default function PhotoBooth({ frame }: { frame: Frame }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const characterRef = useRef<HTMLImageElement | null>(null);
 
   const [mode, setMode] = useState<Mode>("idle");
   const [facing, setFacing] = useState<Facing>("environment");
@@ -35,26 +55,28 @@ export default function PhotoBooth({ frame }: { frame: Frame }) {
   const [starting, setStarting] = useState(false);
   const [showIntro, setShowIntro] = useState(true);
   const [showA2HSBanner, setShowA2HSBanner] = useState(false);
+  const [images, setImages] = useState<ImageMap>(new Map());
 
-  // Load the character image with fallback to /character.png
+  // Load all overlay images for the current frame (with fallbacks)
   useEffect(() => {
-    const img = new window.Image();
-    const onLoad = () => {
-      characterRef.current = img;
-      renderOverlay();
+    let cancelled = false;
+    const uniqueSrcs = Array.from(new Set(frame.overlays.map((o) => o.src)));
+    const map: ImageMap = new Map();
+
+    Promise.all(
+      frame.overlays.map(async (o) => {
+        const img = await loadImage(o.src, o.fallback);
+        if (img) map.set(o.src, img);
+      }),
+    ).then(() => {
+      if (!cancelled) setImages(new Map(map));
+    });
+
+    return () => {
+      cancelled = true;
     };
-    img.onload = onLoad;
-    img.onerror = () => {
-      const fb = new window.Image();
-      fb.onload = () => {
-        characterRef.current = fb;
-        renderOverlay();
-      };
-      fb.src = frame.poseFallback;
-    };
-    img.src = frame.pose;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame.pose, frame.poseFallback]);
+  }, [frame.id]);
 
   const renderOverlay = useCallback(() => {
     const canvas = overlayRef.current;
@@ -73,8 +95,8 @@ export default function PhotoBooth({ frame }: { frame: Frame }) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.scale(dpr, dpr);
-    drawFrameOverlay(ctx, frame, characterRef.current, size);
-  }, [frame]);
+    drawFrameOverlay(ctx, frame, images, size);
+  }, [frame, images]);
 
   useEffect(() => {
     renderOverlay();
@@ -190,9 +212,7 @@ export default function PhotoBooth({ frame }: { frame: Frame }) {
     const sy = (vh - size) / 2;
 
     ctx.save();
-    if (frame.filter) {
-      ctx.filter = filterCss[frame.filter];
-    }
+    if (frame.filter) ctx.filter = filterCss[frame.filter];
     if (facing === "user") {
       ctx.translate(size, 0);
       ctx.scale(-1, 1);
@@ -200,7 +220,7 @@ export default function PhotoBooth({ frame }: { frame: Frame }) {
     ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
     ctx.restore();
 
-    drawFrameOverlay(ctx, frame, characterRef.current, size);
+    drawFrameOverlay(ctx, frame, images, size);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.92),
@@ -256,9 +276,9 @@ export default function PhotoBooth({ frame }: { frame: Frame }) {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={frame.pose}
+            src={frame.splashImage}
             onError={(e) => {
-              (e.currentTarget as HTMLImageElement).src = frame.poseFallback;
+              (e.currentTarget as HTMLImageElement).src = frame.splashFallback;
             }}
             alt=""
             aria-hidden

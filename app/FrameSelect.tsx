@@ -32,11 +32,11 @@ export default function FrameSelect() {
                 <div className="absolute inset-0 flex items-center justify-center opacity-90 group-active:opacity-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={f.pose}
+                    src={f.splashImage}
                     onError={(e) => {
                       const t = e.currentTarget as HTMLImageElement;
-                      if (t.src.indexOf(f.poseFallback) === -1) {
-                        t.src = f.poseFallback;
+                      if (t.src.indexOf(f.splashFallback) === -1) {
+                        t.src = f.splashFallback;
                       }
                     }}
                     alt=""

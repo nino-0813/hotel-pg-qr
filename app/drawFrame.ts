@@ -1,26 +1,78 @@
-import type { Frame, Decor, CharacterPos } from "./frames";
+import type { Frame, Decor, Overlay, Anchor } from "./frames";
 
 type Ctx = CanvasRenderingContext2D;
+
+export type ImageMap = Map<string, HTMLImageElement | null>;
 
 export function drawFrameOverlay(
   ctx: Ctx,
   frame: Frame,
-  character: HTMLImageElement | null,
+  images: ImageMap,
   size: number,
 ) {
   drawDecorBackground(ctx, frame.decor, size);
-  drawCharacter(ctx, character, frame.posePosition, frame.poseScale, size);
+  for (const o of frame.overlays) {
+    const img = images.get(o.src);
+    if (!img) continue;
+    drawSingleOverlay(ctx, img, o, size);
+  }
   drawDecorForeground(ctx, frame.decor, size);
-  drawBanner(ctx, frame.banner, size);
-  if (frame.subtitle) drawSubtitle(ctx, frame.subtitle, frame.banner, size);
+  if (frame.banner) drawBanner(ctx, frame.banner, size);
+  if (frame.subtitle && frame.banner)
+    drawSubtitle(ctx, frame.subtitle, frame.banner, size);
 }
 
-function drawBanner(
+function drawSingleOverlay(
   ctx: Ctx,
-  banner: Frame["banner"],
+  img: HTMLImageElement,
+  o: Overlay,
   size: number,
 ) {
-  const bannerH = size * 0.105;
+  const naturalW = img.naturalWidth;
+  const naturalH = img.naturalHeight;
+  if (!naturalW || !naturalH) return;
+
+  let w: number;
+  let h: number;
+  if (o.width && !o.height) {
+    w = o.width * size;
+    h = (w / naturalW) * naturalH;
+  } else if (o.height && !o.width) {
+    h = o.height * size;
+    w = (h / naturalH) * naturalW;
+  } else if (o.width && o.height) {
+    w = o.width * size;
+    h = o.height * size;
+  } else {
+    w = naturalW;
+    h = naturalH;
+  }
+
+  const px = o.x * size;
+  const py = o.y * size;
+  const anchor: Anchor = o.anchor ?? "tl";
+  let dx = px;
+  let dy = py;
+  if (anchor[0] === "c") dy = py - h / 2;
+  if (anchor[0] === "b") dy = py - h;
+  if (anchor[1] === "c") dx = px - w / 2;
+  if (anchor[1] === "r") dx = px - w;
+
+  ctx.save();
+  if (o.opacity !== undefined) ctx.globalAlpha = o.opacity;
+  if (o.rotate || o.flip) {
+    ctx.translate(dx + w / 2, dy + h / 2);
+    if (o.rotate) ctx.rotate(o.rotate);
+    if (o.flip) ctx.scale(-1, 1);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+  } else {
+    ctx.drawImage(img, dx, dy, w, h);
+  }
+  ctx.restore();
+}
+
+function drawBanner(ctx: Ctx, banner: NonNullable<Frame["banner"]>, size: number) {
+  const bannerH = size * 0.1;
   const y = banner.position === "bottom" ? size - bannerH : 0;
 
   ctx.save();
@@ -29,15 +81,14 @@ function drawBanner(
   ctx.fillRect(0, y, size, bannerH);
   ctx.restore();
 
-  // thin accent line at the inner edge
   ctx.fillStyle = banner.color;
-  ctx.globalAlpha = 0.5;
+  ctx.globalAlpha = 0.4;
   const accentY = banner.position === "bottom" ? y : y + bannerH;
   ctx.fillRect(0, accentY - 1, size, 2);
   ctx.globalAlpha = 1;
 
   ctx.fillStyle = banner.color;
-  ctx.font = `800 ${size * 0.05}px "Hiragino Sans", "Yu Gothic", sans-serif`;
+  ctx.font = `800 ${size * 0.048}px "Hiragino Sans", "Yu Gothic", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(banner.text, size / 2, y + bannerH / 2);
@@ -46,58 +97,29 @@ function drawBanner(
 function drawSubtitle(
   ctx: Ctx,
   text: string,
-  banner: Frame["banner"],
+  banner: NonNullable<Frame["banner"]>,
   size: number,
 ) {
-  const bannerH = size * 0.105;
+  const bannerH = size * 0.1;
   const y =
-    banner.position === "bottom" ? size - bannerH - size * 0.04 : bannerH + size * 0.025;
-  ctx.fillStyle = banner.color;
-  ctx.globalAlpha = 0.85;
-  ctx.font = `500 ${size * 0.025}px "Hiragino Sans", sans-serif`;
+    banner.position === "bottom"
+      ? size - bannerH - size * 0.04
+      : bannerH + size * 0.03;
+  ctx.font = `500 ${size * 0.024}px "Hiragino Sans", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  // background pill
-  const padding = size * 0.015;
   const metrics = ctx.measureText(text);
+  const padding = size * 0.015;
   const pillW = metrics.width + padding * 4;
   const pillH = size * 0.04;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
   ctx.fillRect((size - pillW) / 2, y - pillH / 2, pillW, pillH);
   ctx.fillStyle = "#ffffff";
-  ctx.globalAlpha = 1;
   ctx.fillText(text, size / 2, y);
 }
 
-function drawCharacter(
-  ctx: Ctx,
-  img: HTMLImageElement | null,
-  pos: CharacterPos,
-  scale: number,
-  size: number,
-) {
-  if (!img || !img.complete || img.naturalWidth === 0) return;
-  const w = size * scale;
-  const h = (w / img.naturalWidth) * img.naturalHeight;
-  const margin = size * 0.025;
-  let x: number;
-  const y = size - h - margin;
-  switch (pos) {
-    case "bl":
-      x = margin;
-      break;
-    case "bc":
-      x = (size - w) / 2;
-      break;
-    case "br":
-    default:
-      x = size - w - margin;
-      break;
-  }
-  ctx.drawImage(img, x, y, w, h);
-}
-
-function drawDecorBackground(ctx: Ctx, decor: Decor, size: number) {
+function drawDecorBackground(ctx: Ctx, decor: Decor | undefined, size: number) {
+  if (!decor) return;
   switch (decor) {
     case "ship":
       drawShipStripes(ctx, size);
@@ -106,56 +128,55 @@ function drawDecorBackground(ctx: Ctx, decor: Decor, size: number) {
       drawCertificateBorder(ctx, size);
       break;
     case "stamp":
-      drawStampPerf(ctx, size);
+      drawStampBgTint(ctx, size);
       break;
   }
 }
 
-function drawDecorForeground(ctx: Ctx, decor: Decor, size: number) {
+function drawDecorForeground(ctx: Ctx, decor: Decor | undefined, size: number) {
+  if (!decor) return;
   switch (decor) {
     case "festival":
-      drawFestivalDecor(ctx, size);
+      drawFestivalConfetti(ctx, size);
       break;
     case "samurai":
-      drawSamuraiDecor(ctx, size);
+      drawSamuraiStamps(ctx, size);
       break;
     case "cycle":
-      drawCycleDecor(ctx, size);
+      drawCycleMedallion(ctx, size);
       break;
     case "go":
-      drawGoDecor(ctx, size);
+      drawGoStones(ctx, size);
       break;
     case "ship":
-      drawShipDecor(ctx, size);
+      drawShipWaves(ctx, size);
       break;
     case "stamp":
-      drawStampDecor(ctx, size);
+      drawStampPerf(ctx, size);
+      drawPostmark(ctx, size);
       break;
     case "passport":
-      drawPassportDecor(ctx, size);
+      drawPassportStamp(ctx, size);
       break;
     case "certificate":
-      drawCertificateOrnaments(ctx, size);
+      drawCertificateCorners(ctx, size);
       break;
   }
 }
 
 // ---------- festival ----------
-function drawFestivalDecor(ctx: Ctx, size: number) {
+function drawFestivalConfetti(ctx: Ctx, size: number) {
   const fruits: Array<[number, number, number]> = [
-    [0.08, 0.28, 0.06],
-    [0.92, 0.32, 0.05],
-    [0.06, 0.65, 0.045],
-    [0.18, 0.5, 0.035],
-    [0.94, 0.6, 0.04],
+    [0.5, 0.04, 0.04],
+    [0.18, 0.42, 0.035],
+    [0.82, 0.4, 0.035],
   ];
   for (const [px, py, pr] of fruits) {
     drawHassakuFruit(ctx, size * px, size * py, size * pr);
   }
   for (const [fx, fy, fr] of [
-    [0.25, 0.4, 0.025],
-    [0.78, 0.5, 0.022],
-    [0.55, 0.2, 0.02],
+    [0.35, 0.38, 0.022],
+    [0.66, 0.42, 0.02],
   ] as const) {
     drawSimpleFlower(ctx, size * fx, size * fy, size * fr);
   }
@@ -184,7 +205,7 @@ function drawHassakuFruit(ctx: Ctx, cx: number, cy: number, r: number) {
 }
 
 function drawSimpleFlower(ctx: Ctx, cx: number, cy: number, r: number) {
-  ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
   ctx.strokeStyle = "rgba(0,0,0,0.2)";
   ctx.lineWidth = 1;
   for (let i = 0; i < 6; i++) {
@@ -209,22 +230,21 @@ function drawSimpleFlower(ctx: Ctx, cx: number, cy: number, r: number) {
 }
 
 // ---------- samurai ----------
-function drawSamuraiDecor(ctx: Ctx, size: number) {
-  // Red "上" stamps in corners
+function drawSamuraiStamps(ctx: Ctx, size: number) {
   const stamps: Array<[number, number, number]> = [
-    [size * 0.08, size * 0.22, -0.08],
-    [size * 0.92, size * 0.22, 0.08],
+    [size * 0.1, size * 0.22, -0.08],
+    [size * 0.22, size * 0.16, 0.1],
   ];
   for (const [cx, cy, rot] of stamps) {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(rot);
-    const s = size * 0.08;
-    ctx.fillStyle = "rgba(211, 47, 47, 0.92)";
+    const s = size * 0.07;
+    ctx.fillStyle = "rgba(211, 47, 47, 0.95)";
     ctx.fillRect(-s / 2, -s, s, s * 2);
     ctx.fillStyle = "white";
     ctx.beginPath();
-    ctx.arc(0, -s * 0.3, s * 0.35, 0, Math.PI * 2);
+    ctx.arc(0, -s * 0.3, s * 0.36, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#D32F2F";
     ctx.font = `bold ${s * 0.55}px serif`;
@@ -236,11 +256,10 @@ function drawSamuraiDecor(ctx: Ctx, size: number) {
 }
 
 // ---------- cycle ----------
-function drawCycleDecor(ctx: Ctx, size: number) {
-  // Distance medallion top-left
+function drawCycleMedallion(ctx: Ctx, size: number) {
   ctx.save();
-  ctx.translate(size * 0.13, size * 0.22);
-  ctx.rotate(-0.12);
+  ctx.translate(size * 0.84, size * 0.22);
+  ctx.rotate(0.12);
   ctx.fillStyle = "#0ea5e9";
   ctx.strokeStyle = "#ffffff";
   ctx.lineWidth = size * 0.008;
@@ -249,31 +268,24 @@ function drawCycleDecor(ctx: Ctx, size: number) {
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = "white";
-  ctx.font = `bold ${size * 0.028}px sans-serif`;
+  ctx.font = `bold ${size * 0.026}px sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("SHIMANAMI", 0, -size * 0.018);
-  ctx.font = `900 ${size * 0.04}px sans-serif`;
-  ctx.fillText("70 km", 0, size * 0.02);
+  ctx.font = `900 ${size * 0.038}px sans-serif`;
+  ctx.fillText("70 km", 0, size * 0.022);
   ctx.restore();
-
-  // Checker stripe at right edge
-  const cw = size * 0.025;
-  for (let y = size * 0.15; y < size - cw; y += cw) {
-    const dark = Math.floor((y - size * 0.15) / cw) % 2 === 0;
-    ctx.fillStyle = dark ? "#0a0a0a" : "#ffffff";
-    ctx.fillRect(size - cw, y, cw, cw);
-  }
 }
 
 // ---------- go ----------
-function drawGoDecor(ctx: Ctx, size: number) {
-  const stoneR = size * 0.04;
+function drawGoStones(ctx: Ctx, size: number) {
+  const stoneR = size * 0.035;
   const stones: Array<[number, number, "b" | "w"]> = [
-    [size * 0.1, size * 0.22, "b"],
-    [size * 0.18, size * 0.22, "w"],
-    [size * 0.1, size * 0.3, "w"],
-    [size * 0.92, size * 0.78, "b"],
+    [size * 0.09, size * 0.16, "b"],
+    [size * 0.18, size * 0.13, "w"],
+    [size * 0.1, size * 0.26, "w"],
+    [size * 0.9, size * 0.16, "b"],
+    [size * 0.82, size * 0.22, "w"],
   ];
   for (const [x, y, c] of stones) {
     ctx.fillStyle = c === "b" ? "#0a0a0a" : "#fafafa";
@@ -290,7 +302,7 @@ function drawGoDecor(ctx: Ctx, size: number) {
 
 // ---------- ship ----------
 function drawShipStripes(ctx: Ctx, size: number) {
-  const stripeW = size * 0.04;
+  const stripeW = size * 0.035;
   for (let y = 0; y < size; y += stripeW * 2) {
     ctx.fillStyle = "#F5C518";
     ctx.fillRect(0, y, stripeW, stripeW);
@@ -303,15 +315,15 @@ function drawShipStripes(ctx: Ctx, size: number) {
   }
 }
 
-function drawShipDecor(ctx: Ctx, size: number) {
-  ctx.strokeStyle = "rgba(245, 197, 24, 0.7)";
-  ctx.lineWidth = size * 0.008;
+function drawShipWaves(ctx: Ctx, size: number) {
+  ctx.strokeStyle = "rgba(245, 197, 24, 0.55)";
+  ctx.lineWidth = size * 0.006;
   for (let pass = 0; pass < 2; pass++) {
     ctx.beginPath();
-    const baseY = size - size * (0.18 + pass * 0.04);
-    for (let x = size * 0.04; x < size - size * 0.04; x += 4) {
+    const baseY = size * (0.35 + pass * 0.04);
+    for (let x = size * 0.06; x < size - size * 0.06; x += 4) {
       const y = baseY + Math.sin((x / size) * Math.PI * 6 + pass) * 6;
-      if (x === size * 0.04) ctx.moveTo(x, y);
+      if (x === size * 0.06) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
@@ -319,13 +331,12 @@ function drawShipDecor(ctx: Ctx, size: number) {
 }
 
 // ---------- stamp ----------
-function drawStampPerf(ctx: Ctx, size: number) {
-  // background tint to make perforations read
-  ctx.fillStyle = "rgba(245, 230, 211, 0.18)";
+function drawStampBgTint(ctx: Ctx, size: number) {
+  ctx.fillStyle = "rgba(245, 230, 211, 0.14)";
   ctx.fillRect(0, 0, size, size);
 }
 
-function drawStampDecor(ctx: Ctx, size: number) {
+function drawStampPerf(ctx: Ctx, size: number) {
   const dotR = size * 0.012;
   const step = dotR * 2.6;
   ctx.fillStyle = "#1a1a1a";
@@ -345,26 +356,27 @@ function drawStampDecor(ctx: Ctx, size: number) {
     ctx.arc(size - dotR * 1.2, y, dotR, 0, Math.PI * 2);
     ctx.fill();
   }
+}
 
-  // Round postmark top-right
+function drawPostmark(ctx: Ctx, size: number) {
   ctx.save();
-  ctx.translate(size * 0.82, size * 0.28);
+  ctx.translate(size * 0.16, size * 0.84);
   ctx.rotate(-0.18);
   ctx.strokeStyle = "rgba(26,26,26,0.7)";
   ctx.lineWidth = size * 0.006;
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.085, 0, Math.PI * 2);
+  ctx.arc(0, 0, size * 0.08, 0, Math.PI * 2);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.062, 0, Math.PI * 2);
+  ctx.arc(0, 0, size * 0.06, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.fillStyle = "rgba(26,26,26,0.8)";
+  ctx.fillStyle = "rgba(26,26,26,0.85)";
   ctx.font = `bold ${size * 0.018}px sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("INNOSHIMA", 0, -size * 0.022);
+  ctx.fillText("INNOSHIMA", 0, -size * 0.02);
   const d = new Date();
-  ctx.font = `bold ${size * 0.022}px sans-serif`;
+  ctx.font = `bold ${size * 0.02}px sans-serif`;
   ctx.fillText(
     `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`,
     0,
@@ -374,30 +386,30 @@ function drawStampDecor(ctx: Ctx, size: number) {
 }
 
 // ---------- passport ----------
-function drawPassportDecor(ctx: Ctx, size: number) {
+function drawPassportStamp(ctx: Ctx, size: number) {
   ctx.save();
-  ctx.translate(size / 2, size * 0.45);
-  ctx.rotate(-0.16);
+  ctx.translate(size * 0.35, size * 0.48);
+  ctx.rotate(-0.18);
   ctx.strokeStyle = "rgba(220, 38, 38, 0.78)";
   ctx.lineWidth = size * 0.012;
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.27, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
   ctx.arc(0, 0, size * 0.22, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.18, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.fillStyle = "rgba(220, 38, 38, 0.78)";
-  ctx.font = `900 ${size * 0.055}px sans-serif`;
+  ctx.font = `900 ${size * 0.044}px sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("ARRIVED", 0, -size * 0.04);
-  ctx.fillText("IN INNOSHIMA", 0, size * 0.035);
-  ctx.font = `bold ${size * 0.025}px sans-serif`;
+  ctx.fillText("ARRIVED", 0, -size * 0.03);
+  ctx.fillText("IN INNOSHIMA", 0, size * 0.025);
+  ctx.font = `bold ${size * 0.022}px sans-serif`;
   const d = new Date();
   ctx.fillText(
     `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`,
     0,
-    size * 0.1,
+    size * 0.08,
   );
   ctx.restore();
 }
@@ -405,19 +417,17 @@ function drawPassportDecor(ctx: Ctx, size: number) {
 // ---------- certificate ----------
 function drawCertificateBorder(ctx: Ctx, size: number) {
   const m = size * 0.025;
-  // outer gold band
   ctx.strokeStyle = "#d4af37";
   ctx.lineWidth = size * 0.014;
   ctx.strokeRect(m, m, size - m * 2, size - m * 2);
-  // inner thin line
   ctx.strokeStyle = "#c9a227";
   ctx.lineWidth = size * 0.003;
   const m2 = m * 1.8;
   ctx.strokeRect(m2, m2, size - m2 * 2, size - m2 * 2);
 }
 
-function drawCertificateOrnaments(ctx: Ctx, size: number) {
-  const cs = size * 0.025;
+function drawCertificateCorners(ctx: Ctx, size: number) {
+  const cs = size * 0.022;
   const corners: Array<[number, number]> = [
     [size * 0.06, size * 0.06],
     [size - size * 0.06, size * 0.06],
