@@ -17,23 +17,22 @@ const LOGO_SIZE = Math.round(LOGO_BG_DIAMETER * 0.82);
 
 // Frame IDs and labels — keep in sync with app/frames.ts
 const frames = [
-  { id: "hassaku", label: "はっさく祭り", dark: "#1a1a1a" },
-  { id: "samurai", label: "水軍出陣", dark: "#7f1d1d" },
-  { id: "cycle", label: "しまなみ完走", dark: "#075985" },
-  { id: "go", label: "秀策の一手", dark: "#3e2723" },
-  { id: "ship", label: "出航記念", dark: "#0a1929" },
-  { id: "stamp", label: "因島切手", dark: "#7c2d12" },
-  { id: "passport", label: "入国スタンプ", dark: "#1e3a8a" },
-  { id: "certificate", label: "因島マスター", dark: "#7c5e10" },
-  { id: "_index", label: "全フレーム一覧", dark: "#000000" },
+  { id: "hassaku", label: "はっさく祭り", dark: "#1a1a1a", pose: "02hassakun.png" },
+  { id: "samurai", label: "水軍出陣", dark: "#7f1d1d", pose: "pose-samurai.png" },
+  { id: "cycle", label: "しまなみ完走", dark: "#075985", pose: "12hassakun.png" },
+  { id: "go", label: "秀策の一手", dark: "#3e2723", pose: "14igo.png" },
+  { id: "ship", label: "出航記念", dark: "#0a1929", pose: "16zousen.png" },
+  { id: "stamp", label: "因島切手", dark: "#7c2d12", pose: "shimagoto_02.png" },
+  { id: "passport", label: "入国スタンプ", dark: "#1e3a8a", pose: "02hassakun.png" },
+  { id: "certificate", label: "因島マスター", dark: "#7c5e10", pose: "shimagoto_02.png" },
+  { id: "_index", label: "全フレーム一覧", dark: "#000000", pose: "shimagoto_02.png" },
 ];
 
 await fs.mkdir(OUT, { recursive: true });
 
-// Try frame-specific pose for the QR center logo, fall back to character.png
-async function logoForFrame(frameId) {
+async function resolveLogo(poseFile) {
   const candidates = [
-    path.join(PUBLIC, "frames", `pose-${frameId}.png`),
+    path.join(PUBLIC, "frames", poseFile),
     path.join(PUBLIC, "character.png"),
   ];
   for (const c of candidates) {
@@ -49,7 +48,7 @@ async function logoForFrame(frameId) {
 
 for (const f of frames) {
   const url = f.id === "_index" ? BASE_URL : `${BASE_URL}/?f=${f.id}`;
-  const logoPath = await logoForFrame(f.id === "_index" ? "samurai" : f.id);
+  const logoPath = await resolveLogo(f.pose);
 
   const qrBuffer = await QRCode.toBuffer(url, {
     errorCorrectionLevel: "H",
