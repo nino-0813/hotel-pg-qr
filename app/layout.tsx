@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "hotelぴーじー 記念撮影",
-  description: "ホテルぴーじー滞在の思い出にどうぞ",
+  title: "HOTEL PG 記念撮影",
+  description: "HOTEL PG 滞在の思い出にどうぞ",
 };
 
 export const viewport: Viewport = {

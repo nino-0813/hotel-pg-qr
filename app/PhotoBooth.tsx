@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type Mode = "idle" | "live" | "captured";
 type Facing = "user" | "environment";
 
-const HOTEL_NAME = "hotelぴーじー";
+const HOTEL_NAME = "HOTEL PG";
 const CAPTION = "記念撮影";
 
 export default function PhotoBooth() {
@@ -132,7 +132,7 @@ export default function PhotoBooth() {
     ctx.font = `700 ${size * 0.052}px "Hiragino Sans", "Yu Gothic", sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(`${HOTEL_NAME}  ${CAPTION}`, size / 2, bannerH / 2);
+    ctx.fillText(`${HOTEL_NAME}  |  ${CAPTION}`, size / 2, bannerH / 2);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.92),
@@ -177,8 +177,12 @@ export default function PhotoBooth() {
     <div className="flex flex-col items-center justify-center w-full min-h-dvh bg-black text-white px-4 py-6">
       <div className="w-full max-w-md flex flex-col items-center gap-4">
         <header className="text-center">
-          <h1 className="text-xl font-bold tracking-wide">{HOTEL_NAME}</h1>
-          <p className="text-xs text-zinc-400 mt-1">{CAPTION}</p>
+          <h1 className="text-2xl font-extrabold tracking-[0.2em]">
+            {HOTEL_NAME}
+          </h1>
+          <p className="text-xs text-zinc-400 mt-1 tracking-widest">
+            {CAPTION}
+          </p>
         </header>
 
         <div className="relative w-full aspect-square bg-zinc-900 rounded-2xl overflow-hidden shadow-lg">
@@ -210,8 +214,12 @@ export default function PhotoBooth() {
                   facing === "user" ? "scale-x-[-1]" : ""
                 }`}
               />
-              <div className="pointer-events-none absolute top-0 inset-x-0 bg-red-600/90 text-white text-center py-2 font-bold text-sm tracking-wider">
-                {HOTEL_NAME}  {CAPTION}
+              <div className="pointer-events-none absolute top-0 inset-x-0 bg-red-600/90 text-white text-center py-2 font-bold text-sm">
+                <span className="tracking-[0.2em] font-extrabold">
+                  {HOTEL_NAME}
+                </span>
+                <span className="mx-2 opacity-80">|</span>
+                <span className="tracking-widest">{CAPTION}</span>
               </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
