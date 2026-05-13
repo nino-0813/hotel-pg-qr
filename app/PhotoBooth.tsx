@@ -1,17 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Frame } from "./frames";
+import { drawFrameOverlay } from "./drawFrame";
 
 type Mode = "idle" | "live" | "captured";
 type Facing = "user" | "environment";
 
 const HOTEL_NAME = "HOTEL PG";
-const CAPTION = "記念撮影";
 const INTRO_MS = 1800;
 
-export default function PhotoBooth() {
+const filterCss: Record<NonNullable<Frame["filter"]> | "none", string> = {
+  none: "",
+  sepia: "sepia(0.35) contrast(1.05) saturate(0.85)",
+  warm: "saturate(1.1) contrast(1.05) brightness(0.95)",
+  cool: "saturate(0.9) hue-rotate(-10deg)",
+};
+
+export default function PhotoBooth({ frame }: { frame: Frame }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const characterRef = useRef<HTMLImageElement | null>(null);
 
@@ -25,6 +36,53 @@ export default function PhotoBooth() {
   const [showIntro, setShowIntro] = useState(true);
   const [showA2HSBanner, setShowA2HSBanner] = useState(false);
 
+  // Load the character image with fallback to /character.png
+  useEffect(() => {
+    const img = new window.Image();
+    const onLoad = () => {
+      characterRef.current = img;
+      renderOverlay();
+    };
+    img.onload = onLoad;
+    img.onerror = () => {
+      const fb = new window.Image();
+      fb.onload = () => {
+        characterRef.current = fb;
+        renderOverlay();
+      };
+      fb.src = frame.poseFallback;
+    };
+    img.src = frame.pose;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame.pose, frame.poseFallback]);
+
+  const renderOverlay = useCallback(() => {
+    const canvas = overlayRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const rect = container.getBoundingClientRect();
+    const size = Math.min(rect.width, rect.height);
+    if (size === 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+    drawFrameOverlay(ctx, frame, characterRef.current, size);
+  }, [frame]);
+
+  useEffect(() => {
+    renderOverlay();
+    const onResize = () => renderOverlay();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [renderOverlay, mode]);
+
   useEffect(() => {
     return () => {
       if (captured) URL.revokeObjectURL(captured.url);
@@ -32,24 +90,17 @@ export default function PhotoBooth() {
   }, [captured]);
 
   useEffect(() => {
-    const img = new window.Image();
-    img.src = "/character.png";
-    img.onload = () => {
-      characterRef.current = img;
-    };
-  }, []);
-
-  useEffect(() => {
     if (typeof window === "undefined") return;
-    const alreadySeen = sessionStorage.getItem("introShown");
+    const key = `introShown-${frame.id}`;
+    const alreadySeen = sessionStorage.getItem(key);
     if (alreadySeen) {
       setShowIntro(false);
       return;
     }
-    sessionStorage.setItem("introShown", "1");
+    sessionStorage.setItem(key, "1");
     const t = window.setTimeout(() => setShowIntro(false), INTRO_MS);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [frame.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -138,38 +189,18 @@ export default function PhotoBooth() {
     const sx = (vw - size) / 2;
     const sy = (vh - size) / 2;
 
+    ctx.save();
+    if (frame.filter) {
+      ctx.filter = filterCss[frame.filter];
+    }
     if (facing === "user") {
-      ctx.save();
       ctx.translate(size, 0);
       ctx.scale(-1, 1);
-      ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
-      ctx.restore();
-    } else {
-      ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
     }
+    ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+    ctx.restore();
 
-    const character = characterRef.current;
-    if (character && character.complete) {
-      const charW = size * 0.36;
-      const charH = (charW / character.naturalWidth) * character.naturalHeight;
-      const margin = size * 0.025;
-      ctx.drawImage(
-        character,
-        size - charW - margin,
-        size - charH - margin,
-        charW,
-        charH,
-      );
-    }
-
-    const bannerH = size * 0.11;
-    ctx.fillStyle = "rgba(220, 38, 38, 0.92)";
-    ctx.fillRect(0, 0, size, bannerH);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = `700 ${size * 0.052}px "Hiragino Sans", "Yu Gothic", sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(`${HOTEL_NAME}  |  ${CAPTION}`, size / 2, bannerH / 2);
+    drawFrameOverlay(ctx, frame, characterRef.current, size);
 
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, "image/jpeg", 0.92),
@@ -189,13 +220,16 @@ export default function PhotoBooth() {
 
   const save = async () => {
     if (!captured) return;
-    const filename = `hotelpg-${Date.now()}.jpg`;
+    const filename = `hotelpg-${frame.id}-${Date.now()}.jpg`;
     const file = new File([captured.blob], filename, { type: "image/jpeg" });
 
     const nav = typeof navigator !== "undefined" ? navigator : null;
     if (nav?.canShare?.({ files: [file] })) {
       try {
-        await nav.share({ files: [file], title: `${HOTEL_NAME} 記念撮影` });
+        await nav.share({
+          files: [file],
+          title: `${HOTEL_NAME} ${frame.name}`,
+        });
         return;
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") return;
@@ -211,12 +245,21 @@ export default function PhotoBooth() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full min-h-dvh bg-black text-white px-4 py-6 safe-area">
+    <div
+      className="flex flex-col items-center justify-center w-full min-h-dvh text-white px-4 py-6 safe-area transition-colors"
+      style={{ backgroundColor: frame.theme.pageBg }}
+    >
       {showIntro && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-red-600 animate-splash-out pointer-events-none">
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center animate-splash-out pointer-events-none"
+          style={{ backgroundColor: frame.theme.splashBg }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/character.png"
+            src={frame.pose}
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = frame.poseFallback;
+            }}
             alt=""
             aria-hidden
             className="w-1/2 max-w-[280px] drop-shadow-2xl animate-mascot-pop"
@@ -224,37 +267,54 @@ export default function PhotoBooth() {
           <h1 className="mt-6 text-4xl font-extrabold tracking-[0.3em] text-white animate-title-rise">
             {HOTEL_NAME}
           </h1>
-          <p className="mt-3 text-sm text-white/85 tracking-[0.5em] animate-subtitle-rise">
-            {CAPTION}
+          <p className="mt-3 text-sm text-white/85 tracking-[0.4em] animate-subtitle-rise">
+            {frame.name}
           </p>
         </div>
       )}
 
       <div className="w-full max-w-md flex flex-col items-center gap-4">
-        <header className="text-center">
-          <h1 className="text-2xl font-extrabold tracking-[0.2em]">
-            {HOTEL_NAME}
-          </h1>
-          <p className="text-xs text-zinc-400 mt-1 tracking-widest">
-            {CAPTION}
-          </p>
+        <header className="text-center w-full flex items-center justify-between">
+          <Link
+            href="/"
+            className="text-xs text-white/60 hover:text-white px-3 py-1 rounded-full bg-white/10 transition-colors"
+            aria-label="フレームを選び直す"
+          >
+            ← 切替
+          </Link>
+          <div className="text-center">
+            <h1 className="text-xl font-extrabold tracking-[0.2em]">
+              {HOTEL_NAME}
+            </h1>
+            <p
+              className="text-[11px] mt-0.5 tracking-widest"
+              style={{ color: frame.theme.accent }}
+            >
+              {frame.emoji}  {frame.name}
+            </p>
+          </div>
+          <div className="w-[60px]" />
         </header>
 
-        <div className="relative w-full aspect-square bg-zinc-900 rounded-2xl overflow-hidden shadow-lg">
+        <div
+          ref={containerRef}
+          className="relative w-full aspect-square bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl"
+        >
           {mode === "idle" && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-6 text-center z-20">
               <p className="text-sm text-zinc-300">
                 カメラへのアクセスを許可してください
               </p>
               <button
                 onClick={() => startCamera(facing)}
                 disabled={starting}
-                className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 disabled:bg-zinc-700 transition-all font-bold"
+                className="px-6 py-3 rounded-full active:scale-95 disabled:opacity-60 transition-all font-bold shadow-lg"
+                style={{ backgroundColor: frame.theme.accent, color: "#fff" }}
               >
                 {starting ? "起動中…" : "カメラを起動"}
               </button>
               {error && (
-                <p className="text-xs text-red-400 max-w-xs">{error}</p>
+                <p className="text-xs text-red-300 max-w-xs">{error}</p>
               )}
             </div>
           )}
@@ -268,20 +328,13 @@ export default function PhotoBooth() {
                 className={`w-full h-full object-cover ${
                   facing === "user" ? "scale-x-[-1]" : ""
                 }`}
+                style={{
+                  filter: frame.filter ? filterCss[frame.filter] : undefined,
+                }}
               />
-              <div className="pointer-events-none absolute top-0 inset-x-0 bg-red-600/90 text-white text-center py-2 font-bold text-sm">
-                <span className="tracking-[0.2em] font-extrabold">
-                  {HOTEL_NAME}
-                </span>
-                <span className="mx-2 opacity-80">|</span>
-                <span className="tracking-widest">{CAPTION}</span>
-              </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/character.png"
-                alt=""
-                aria-hidden
-                className="pointer-events-none absolute bottom-2 right-2 w-[36%] drop-shadow-md select-none"
+              <canvas
+                ref={overlayRef}
+                className="pointer-events-none absolute inset-0 w-full h-full"
               />
             </>
           )}
@@ -302,14 +355,14 @@ export default function PhotoBooth() {
               onClick={flip}
               disabled={starting}
               aria-label="カメラ切り替え"
-              className="w-12 h-12 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-90 transition-transform flex items-center justify-center text-xl"
+              className="w-12 h-12 rounded-full bg-white/15 hover:bg-white/25 active:scale-90 transition-transform flex items-center justify-center text-xl"
             >
               🔄
             </button>
             <button
               onClick={capture}
               aria-label="撮影"
-              className="w-20 h-20 rounded-full bg-white border-4 border-zinc-300 active:scale-90 transition-transform shadow-xl"
+              className="w-20 h-20 rounded-full bg-white border-4 border-white/40 active:scale-90 transition-transform shadow-xl"
             />
             <div className="w-12 h-12" aria-hidden />
           </div>
@@ -319,13 +372,14 @@ export default function PhotoBooth() {
           <div className="flex items-center justify-center gap-3 w-full mt-2">
             <button
               onClick={reset}
-              className="px-5 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 transition-all font-medium"
+              className="px-5 py-3 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 transition-all font-medium"
             >
               やり直し
             </button>
             <button
               onClick={save}
-              className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 active:scale-95 transition-all font-bold"
+              className="px-6 py-3 rounded-full active:scale-95 transition-all font-bold shadow-lg"
+              style={{ backgroundColor: frame.theme.accent, color: "#fff" }}
             >
               写真を保存
             </button>
@@ -333,7 +387,7 @@ export default function PhotoBooth() {
         )}
 
         {mode === "captured" && (
-          <p className="text-[11px] text-zinc-500 text-center mt-1 max-w-xs leading-relaxed">
+          <p className="text-[11px] text-white/55 text-center mt-1 max-w-xs leading-relaxed">
             「写真を保存」を押すと共有メニューが開きます。
             <br />
             iPhoneは「画像を保存」を選ぶと写真アプリに保存されます。
@@ -346,7 +400,9 @@ export default function PhotoBooth() {
       {showA2HSBanner && (
         <div
           className="fixed inset-x-0 bottom-0 z-40 px-3 pb-3"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)",
+          }}
         >
           <div className="mx-auto max-w-md rounded-2xl bg-zinc-900/95 backdrop-blur-md border border-white/10 px-4 py-3 flex items-center gap-3 shadow-2xl">
             {/* eslint-disable-next-line @next/next/no-img-element */}
