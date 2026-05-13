@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import { FRAME_IDS, frames } from "./frames";
 
