@@ -16,9 +16,17 @@ export default function PhotoBooth() {
 
   const [mode, setMode] = useState<Mode>("idle");
   const [facing, setFacing] = useState<Facing>("environment");
-  const [captured, setCaptured] = useState<string | null>(null);
+  const [captured, setCaptured] = useState<{ url: string; blob: Blob } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (captured) URL.revokeObjectURL(captured.url);
+    };
+  }, [captured]);
 
   useEffect(() => {
     const img = new window.Image();
@@ -126,22 +134,40 @@ export default function PhotoBooth() {
     ctx.textBaseline = "middle";
     ctx.fillText(`${HOTEL_NAME}  ${CAPTION}`, size / 2, bannerH / 2);
 
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-    setCaptured(dataUrl);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.92),
+    );
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    setCaptured({ url, blob });
     setMode("captured");
     stopStream();
   };
 
   const reset = async () => {
+    if (captured) URL.revokeObjectURL(captured.url);
     setCaptured(null);
     await startCamera(facing);
   };
 
-  const download = () => {
+  const save = async () => {
     if (!captured) return;
+    const filename = `hotelpg-${Date.now()}.jpg`;
+    const file = new File([captured.blob], filename, { type: "image/jpeg" });
+
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    if (nav?.canShare?.({ files: [file] })) {
+      try {
+        await nav.share({ files: [file], title: `${HOTEL_NAME} 記念撮影` });
+        return;
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") return;
+      }
+    }
+
     const a = document.createElement("a");
-    a.href = captured;
-    a.download = `hotelpg-${Date.now()}.jpg`;
+    a.href = captured.url;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -200,7 +226,7 @@ export default function PhotoBooth() {
           {mode === "captured" && captured && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={captured}
+              src={captured.url}
               alt="撮影した写真"
               className="w-full h-full object-cover"
             />
@@ -235,7 +261,7 @@ export default function PhotoBooth() {
               やり直し
             </button>
             <button
-              onClick={download}
+              onClick={save}
               className="px-6 py-3 rounded-full bg-red-600 hover:bg-red-700 font-bold"
             >
               写真を保存
@@ -244,8 +270,10 @@ export default function PhotoBooth() {
         )}
 
         {mode === "captured" && (
-          <p className="text-[11px] text-zinc-500 text-center mt-1 max-w-xs">
-            iPhoneの場合、写真を長押し →「写真に追加」でも保存できます
+          <p className="text-[11px] text-zinc-500 text-center mt-1 max-w-xs leading-relaxed">
+            「写真を保存」を押すと共有メニューが開きます。
+            <br />
+            iPhoneは「画像を保存」を選ぶと写真アプリに保存されます。
           </p>
         )}
 
